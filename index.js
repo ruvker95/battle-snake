@@ -43,19 +43,21 @@ const getClosestFood = (head, food, snakes) => {
         .map(f => f.food);
 };
 
+const isBiggestSnake = (you, snakes) => {
+    return snakes.every(snake => snake.body.length <= you.body.length);
+};
+
 // Battlesnake endpoints
 app.get('/ping', (req, res) => {
     res.status(200).send('pong');
 });
 
 app.post('/start', (req, res) => {
-    const { game, turn, board, you } = req.body;
-
-    res.json({ color: '#00FF00', headType: 'fang', tailType: 'round-bum' });
+    res.json({ color: '#8B0000', headType: 'fang', tailType: 'round-bum' });
 });
 
 app.post('/move', (req, res) => {
-    const { game, turn, board, you } = req.body;
+    const { board, you } = req.body;
 
     const head = you.body[0];
     const safeMoves = getSafeMoves(head, board, board.snakes);
@@ -63,7 +65,27 @@ app.post('/move', (req, res) => {
 
     let move = 'up'; // Default move
 
-    if (closestFood.length > 0) {
+    if (isBiggestSnake(you, board.snakes)) {
+        // Aggressive behavior: target other snake heads
+        const targetSnakes = board.snakes.filter(snake => snake.id !== you.id);
+        const directions = safeMoves.map(([direction, position]) => {
+            const closestSnakeHead = targetSnakes
+                .map(snake => snake.body[0])
+                .sort((a, b) => distance(position, a) - distance(position, b))[0];
+
+            return {
+                direction,
+                distance: distance(position, closestSnakeHead),
+            };
+        });
+
+        directions.sort((a, b) => a.distance - b.distance);
+
+        if (directions.length > 0) {
+            move = directions[0].direction;
+        }
+    } else if (closestFood.length > 0) {
+        // Hungry behavior: target closest food
         const target = closestFood[0];
 
         const directions = safeMoves.map(([direction, position]) => ({
@@ -77,7 +99,7 @@ app.post('/move', (req, res) => {
             move = directions[0].direction;
         }
     } else if (safeMoves.length > 0) {
-        // No food available, pick a random safe move
+        // No clear target, pick a random safe move
         move = safeMoves[Math.floor(Math.random() * safeMoves.length)][0];
     }
 
