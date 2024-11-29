@@ -1,4 +1,4 @@
-import express from "express";
+import express from "express"
 const app = express();
 app.use(express.json());
 
@@ -27,9 +27,9 @@ const getSafeMoves = (head, board, snakes) => {
         right: { x: head.x + 1, y: head.y },
     };
 
-    return Object.entries(possibleMoves).filter(([direction, position]) =>
-        isPositionSafe(position, board, snakes)
-    );
+    return Object.entries(possibleMoves)
+        .filter(([direction, position]) => isPositionSafe(position, board, snakes))
+        .map(([direction]) => direction);
 };
 
 const getClosestFood = (head, food, snakes) => {
@@ -47,6 +47,13 @@ const isBiggestSnake = (you, snakes) => {
     return snakes.every(snake => snake.body.length <= you.body.length);
 };
 
+const getClosestSnake = (head, snakes) => {
+    const otherSnakes = snakes.filter(snake => snake.body[0] && snake.body[0].id !== head.id);
+    return otherSnakes
+        .map(snake => ({ snake, distance: distance(head, snake.body[0]) }))
+        .sort((a, b) => a.distance - b.distance);
+};
+
 // Battlesnake endpoints
 app.get('/ping', (req, res) => {
     res.status(200).send('pong');
@@ -62,45 +69,59 @@ app.post('/move', (req, res) => {
     const head = you.body[0];
     const safeMoves = getSafeMoves(head, board, board.snakes);
     const closestFood = getClosestFood(head, board.food, board.snakes);
+    const closestSnake = getClosestSnake(head, board.snakes);
 
     let move = 'up'; // Default move
 
-    if (isBiggestSnake(you, board.snakes)) {
-        // Aggressive behavior: target other snake heads
-        const targetSnakes = board.snakes.filter(snake => snake.id !== you.id);
-        const directions = safeMoves.map(([direction, position]) => {
-            const closestSnakeHead = targetSnakes
-                .map(snake => snake.body[0])
-                .sort((a, b) => distance(position, a) - distance(position, b))[0];
+    if (safeMoves.length === 0) {
+        res.json({ move });
+        return; // No safe moves, default to 'up'
+    }
 
-            return {
-                direction,
-                distance: distance(position, closestSnakeHead),
-            };
-        });
+    if (closestSnake.length > 0 && closestSnake[0].distance <= 2) {
+        const targetSnake = closestSnake[0].snake;
+        if (targetSnake.body.length < you.body.length) {
+            // Aggressive behavior: target smaller snake heads
+            const directions = safeMoves.map(direction => {
+                const nextPosition = {
+                    up: { x: head.x, y: head.y - 1 },
+                    down: { x: head.x, y: head.y + 1 },
+                    left: { x: head.x - 1, y: head.y },
+                    right: { x: head.x + 1, y: head.y },
+                }[direction];
+                return {
+                    direction,
+                    distance: distance(nextPosition, targetSnake.body[0]),
+                };
+            });
 
-        directions.sort((a, b) => a.distance - b.distance);
+            directions.sort((a, b) => a.distance - b.distance);
 
-        if (directions.length > 0) {
             move = directions[0].direction;
         }
     } else if (closestFood.length > 0) {
         // Hungry behavior: target closest food
         const target = closestFood[0];
 
-        const directions = safeMoves.map(([direction, position]) => ({
-            direction,
-            distance: distance(position, target),
-        }));
+        const directions = safeMoves.map(direction => {
+            const nextPosition = {
+                up: { x: head.x, y: head.y - 1 },
+                down: { x: head.x, y: head.y + 1 },
+                left: { x: head.x - 1, y: head.y },
+                right: { x: head.x + 1, y: head.y },
+            }[direction];
+            return {
+                direction,
+                distance: distance(nextPosition, target),
+            };
+        });
 
         directions.sort((a, b) => a.distance - b.distance);
 
-        if (directions.length > 0) {
-            move = directions[0].direction;
-        }
-    } else if (safeMoves.length > 0) {
+        move = directions[0].direction;
+    } else {
         // No clear target, pick a random safe move
-        move = safeMoves[Math.floor(Math.random() * safeMoves.length)][0];
+        move = safeMoves[Math.floor(Math.random() * safeMoves.length)];
     }
 
     res.json({ move });
